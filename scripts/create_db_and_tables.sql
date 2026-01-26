@@ -11,26 +11,26 @@ USE hotel_reserv;
 GO
 
 
--- ВСПОМОГАТЕЛЬНЫЕ СПРАВОЧНИКИ
+-- Р’РЎРџРћРњРћР“РђРўР•Р›Р¬РќР«Р• РЎРџР РђР’РћР§РќРРљР
 ------------------------------------------------------------------------------------
 
---Статусы номеров
+--РЎС‚Р°С‚СѓСЃС‹ РЅРѕРјРµСЂРѕРІ
 CREATE TABLE prj_room_statuses (
     status_id INT PRIMARY KEY,
     status_name NVARCHAR(50) NOT NULL
 );
 
---Способы оплаты
+--РЎРїРѕСЃРѕР±С‹ РѕРїР»Р°С‚С‹
 CREATE TABLE prj_payment_methods (
     payment_method_id INT PRIMARY KEY,
     method_name NVARCHAR(50) NOT NULL
 );
 
 
--- ОТЕЛИ
+-- РћРўР•Р›Р
 ------------------------------------------------------------------------------------
 
---Отели
+--РћС‚РµР»Рё
 CREATE TABLE prj_hotels (
     hotel_id INT PRIMARY KEY,
     hotel_name NVARCHAR(100) NOT NULL,
@@ -42,14 +42,14 @@ CREATE TABLE prj_hotels (
     location GEOGRAPHY
 );
 
---Категории номеров
+--РљР°С‚РµРіРѕСЂРёРё РЅРѕРјРµСЂРѕРІ
 CREATE TABLE prj_room_types (
     room_type_id INT IDENTITY PRIMARY KEY,
     type_name NVARCHAR(50) NOT NULL,
     capacity INT CHECK (capacity > 0)
 );
 
---Ценовая сетка
+--Р¦РµРЅРѕРІР°СЏ СЃРµС‚РєР°
 CREATE TABLE prj_hotel_room_prices (
     hotel_id INT NOT NULL,
     room_type_id INT NOT NULL,
@@ -62,7 +62,7 @@ CREATE TABLE prj_hotel_room_prices (
 
 ------------------------------------------------------------------------------------
 
---Номера
+--РќРѕРјРµСЂР°
 CREATE TABLE prj_rooms (
     room_id INT IDENTITY PRIMARY KEY,
     hotel_id INT NOT NULL,
@@ -76,7 +76,7 @@ CREATE TABLE prj_rooms (
     CONSTRAINT UQ_Hotel_Room UNIQUE (hotel_id, room_number)
 );
 
---Гости
+--Р“РѕСЃС‚Рё
 CREATE TABLE prj_guests (
     guest_id INT IDENTITY PRIMARY KEY,
     first_name NVARCHAR(50),
@@ -86,7 +86,7 @@ CREATE TABLE prj_guests (
     email NVARCHAR(100)
 );
 
---Бронирование/заявки на бронь
+--Р‘СЂРѕРЅРёСЂРѕРІР°РЅРёРµ/Р·Р°СЏРІРєРё РЅР° Р±СЂРѕРЅСЊ
 CREATE TABLE prj_reservations (
     reservation_id INT IDENTITY PRIMARY KEY,
     hotel_id INT NOT NULL,
@@ -101,7 +101,7 @@ CREATE TABLE prj_reservations (
     FOREIGN KEY (guest_id) REFERENCES prj_guests(guest_id)
 );
 
---Журнал фактического пребывания
+--Р–СѓСЂРЅР°Р» С„Р°РєС‚РёС‡РµСЃРєРѕРіРѕ РїСЂРµР±С‹РІР°РЅРёСЏ
 CREATE TABLE prj_check_info (
     check_in_id INT IDENTITY PRIMARY KEY,
     reservation_id INT UNIQUE,
@@ -111,17 +111,17 @@ CREATE TABLE prj_check_info (
 );
 
 
--- УСЛУГИ
+-- РЈРЎР›РЈР“Р
 ------------------------------------------------------------------------------------
 
---Каталог услуг
+--РљР°С‚Р°Р»РѕРі СѓСЃР»СѓРі
 CREATE TABLE prj_services (
     service_id INT IDENTITY PRIMARY KEY,
     service_name NVARCHAR(100),
     service_price DECIMAL(10,2) CHECK (service_price > 0)
 );
 
---Потребленные услуги
+--РџРѕС‚СЂРµР±Р»РµРЅРЅС‹Рµ СѓСЃР»СѓРіРё
 CREATE TABLE prj_guest_services (
     guest_service_id INT IDENTITY PRIMARY KEY,
     check_in_id INT NOT NULL,
@@ -132,7 +132,7 @@ CREATE TABLE prj_guest_services (
     FOREIGN KEY (service_id) REFERENCES prj_services(service_id)
 );
 
---Оплаты
+--РћРїР»Р°С‚С‹
 CREATE TABLE prj_payments (
     payment_id INT IDENTITY PRIMARY KEY,
     reservation_id INT NOT NULL,
@@ -146,10 +146,10 @@ CREATE TABLE prj_payments (
 
 
 ------------------------------------------------------------------------------------
--- ТРИГГЕРЫ
+-- РўР РР“Р“Р•Р Р«
 ------------------------------------------------------------------------------------
 
---Запрет пересечения бронирований
+--Р—Р°РїСЂРµС‚ РїРµСЂРµСЃРµС‡РµРЅРёСЏ Р±СЂРѕРЅРёСЂРѕРІР°РЅРёР№
 GO
 CREATE TRIGGER trg_no_overbooking
 ON prj_reservations
@@ -165,7 +165,7 @@ BEGIN
          AND i.check_out_plan > r.check_in_plan
     )
     BEGIN
-        RAISERROR (N'Номер уже забронирован на указанный период', 16, 1);
+        RAISERROR (N'РќРѕРјРµСЂ СѓР¶Рµ Р·Р°Р±СЂРѕРЅРёСЂРѕРІР°РЅ РЅР° СѓРєР°Р·Р°РЅРЅС‹Р№ РїРµСЂРёРѕРґ', 16, 1);
         ROLLBACK TRANSACTION;
         RETURN;
     END
@@ -178,20 +178,20 @@ END;
 GO
 
 
---Автоматическое изменение статуса номера
+--РђРІС‚РѕРјР°С‚РёС‡РµСЃРєРѕРµ РёР·РјРµРЅРµРЅРёРµ СЃС‚Р°С‚СѓСЃР° РЅРѕРјРµСЂР°
 CREATE TRIGGER trg_AfterCheckIn
 ON prj_check_info
 AFTER INSERT
 AS
 BEGIN
-    --найти ID номера через связь с бронированием
-    DECLARE @RoomID INT;
-    SELECT @RoomID = r.room_id
-    FROM prj_reservations r
-    JOIN inserted i ON r.reservation_id = i.reservation_id;
+В  В  --РЅР°Р№С‚Рё ID РЅРѕРјРµСЂР° С‡РµСЂРµР· СЃРІСЏР·СЊ СЃ Р±СЂРѕРЅРёСЂРѕРІР°РЅРёРµРј
+В  В  DECLARE @RoomID INT;
+В  В  SELECT @RoomID = r.room_id
+В  В  FROM prj_reservations r
+В  В  JOIN inserted i ON r.reservation_id = i.reservation_id;
 
-    --обновить статус на &#39;Занят&#39; (ID статуса = 2)
-    UPDATE prj_rooms
-    SET status_id = 2
-    WHERE room_id = @RoomID;
+В  В  --РѕР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ РЅР° &#39;Р—Р°РЅСЏС‚&#39; (ID СЃС‚Р°С‚СѓСЃР° = 2)
+В  В  UPDATE prj_rooms
+В  В  SET status_id = 2
+В  В  WHERE room_id = @RoomID;
 END;
