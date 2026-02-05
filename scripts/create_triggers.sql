@@ -48,3 +48,48 @@ BEGIN
     SET status_id = 2
     WHERE room_id = @RoomID;
 END;
+
+--после исправления замечаний
+--ЗАМЕЧАНИЕ 2 - триггер овербукинга у вас сейчас INSTEAD OF INSERT. Но нет ничего про UPDATE. Можно сломать бронь апдейтом.
+GO
+CREATE OR ALTER TRIGGER trg_no_overbooking
+ON prj_reservations
+--должен срабатывать и при вставке, и при изменении
+AFTER INSERT, UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    IF EXISTS (
+        SELECT 1
+        FROM inserted i
+        JOIN prj_reservations r ON r.room_id = i.room_id
+        WHERE 
+            --проверка пересечения дат
+            i.check_in_plan < r.check_out_plan 
+            AND i.check_out_plan > r.check_in_plan
+            --не сравнение запись с самой собой при UPDATE
+            AND i.reservation_id <> r.reservation_id
+    )
+    BEGIN
+        RAISERROR (N'Ошибка: Номер уже забронирован на указанный период или пересекается с существующей бронью.', 16, 1);
+        ROLLBACK TRANSACTION;
+    END
+END;
+GO
+
+--ЗАМЕЧАНИЕ 3 - триггер trg_AfterCheckIn - тут есть небольшая ошибка. Он берёт один @RoomID из inserted. Если вставят несколько строк — обновит только один номер.
+CREATE OR ALTER TRIGGER trg_AfterCheckIn
+ON prj_check_info
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    UPDATE prj_rooms
+    --'Занят'
+    SET status_id = 2 
+    FROM prj_rooms r
+        JOIN prj_reservations res ON r.room_id = res.room_id
+        JOIN inserted i ON res.reservation_id = i.reservation_id;
+END;
