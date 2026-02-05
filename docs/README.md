@@ -396,7 +396,325 @@ FROM RunningTotal;
 
 ---
 
-## 📝 Описание отчетов
+## 📝 Описание представлений
+
+### 1. Список услуг по гостиницам в разрезе гостей. 
+**Описание:** Название **prj_guest_services_by_hotel**. Может применяться в отчётах по доп. услугам, детализация чеков гостей и т.д.  
+
+<details>
+<summary>💻 Посмотреть SQL запрос</summary>
+
+```sql
+CREATE VIEW prj_guest_services_by_hotel
+AS
+SELECT
+    h.hotel_id,
+    h.hotel_name,
+    g.guest_id,
+    CONCAT(g.last_name, ' ', g.first_name) AS guest_name,
+    s.service_name,
+    gs.service_date,
+    gs.quantity,
+    s.service_price,
+    gs.quantity * s.service_price AS total_amount
+FROM prj_guest_services gs
+    JOIN prj_check_info ci ON gs.check_in_id = ci.check_in_id
+    JOIN prj_reservations r ON ci.reservation_id = r.reservation_id
+    JOIN prj_hotels h ON r.hotel_id = h.hotel_id
+    JOIN prj_guests g ON r.guest_id = g.guest_id
+    JOIN prj_services s ON gs.service_id = s.service_id;
+```
+</details>
+
+### 2. Агрегированные услуги по гостю и гостинице. 
+**Описание:** Название **prj_guest_service_summary**. Сумма услуг одного гостя в одной гостинице. Реализовано с CTE. Применение: анализ популярности услуг.  
+
+<details>
+<summary>💻 Посмотреть SQL запрос</summary>  
+    
+```sql
+GO
+CREATE VIEW prj_guest_service_summary
+AS
+WITH ServiceCTE AS (
+    SELECT
+        h.hotel_id,
+        h.hotel_name,
+        g.guest_id,
+        CONCAT(g.last_name, ' ', g.first_name) AS guest_name,
+        s.service_name,
+        gs.quantity * s.service_price AS service_amount
+    FROM prj_guest_services gs
+    JOIN prj_check_info ci ON gs.check_in_id = ci.check_in_id
+    JOIN prj_reservations r ON ci.reservation_id = r.reservation_id
+    JOIN prj_hotels h ON r.hotel_id = h.hotel_id
+    JOIN prj_guests g ON r.guest_id = g.guest_id
+    JOIN prj_services s ON gs.service_id = s.service_id
+)
+SELECT
+    hotel_name,
+    guest_name,
+    service_name,
+    SUM(service_amount) AS total_service_amount
+FROM ServiceCTE
+GROUP BY hotel_name, guest_name, service_name;
+```
+</details>
+
+### 3. Доля услуг в общем чеке гостя. 
+**Описание:** Название **prj_guest_service_share**. Может применяться для анализа структуры расходов гостя, персональных предложений, маркетинговой аналитики. Используются оконные функции SUM() OVER (). 
+
+<details>
+<summary>💻 Посмотреть SQL запрос</summary>  
+    
+```sql
+GO
+CREATE VIEW prj_guest_service_share
+AS
+WITH TotalPerGuest AS (
+    SELECT
+        g.guest_id,
+        CONCAT(g.last_name, ' ', g.first_name) AS guest_name,
+        h.hotel_name,
+        s.service_name,
+        gs.quantity * s.service_price AS service_amount,
+        SUM(gs.quantity * s.service_price) OVER (
+            PARTITION BY g.guest_id, h.hotel_id
+        ) AS total_guest_services
+    FROM prj_guest_services gs
+    JOIN prj_check_info ci ON gs.check_in_id = ci.check_in_id
+    JOIN prj_reservations r ON ci.reservation_id = r.reservation_id
+    JOIN prj_hotels h ON r.hotel_id = h.hotel_id
+    JOIN prj_guests g ON r.guest_id = g.guest_id
+    JOIN prj_services s ON gs.service_id = s.service_id
+)
+SELECT
+    hotel_name,
+    guest_name,
+    service_name,
+    service_amount,
+    total_guest_services,
+    CAST(service_amount * 100.0 / total_guest_services AS DECIMAL(5,2)) AS service_share_percent
+FROM TotalPerGuest;
+```
+</details>
+
+### 4. ТОП-3 услуги по каждой гостинице. 
+**Описание:** Название **prj_top_services_by_hotel**. Применение: KPI гостиницы, оптимизация сервиса, отчёты руководству. Используется оконные функции RANK() OVER (). 
+
+<details>
+<summary>💻 Посмотреть SQL запрос</summary>  
+    
+```sql
+GO
+CREATE VIEW prj_top_services_by_hotel
+AS
+WITH ServiceRank AS (
+    SELECT
+        h.hotel_name,
+        s.service_name,
+        SUM(gs.quantity * s.service_price) AS revenue,
+        RANK() OVER (
+            PARTITION BY h.hotel_id
+            ORDER BY SUM(gs.quantity * s.service_price) DESC
+        ) AS service_rank
+    FROM prj_guest_services gs
+    JOIN prj_check_info ci ON gs.check_in_id = ci.check_in_id
+    JOIN prj_reservations r ON ci.reservation_id = r.reservation_id
+    JOIN prj_hotels h ON r.hotel_id = h.hotel_id
+    JOIN prj_services s ON gs.service_id = s.service_id
+    GROUP BY h.hotel_id, h.hotel_name, s.service_name
+)
+SELECT *
+FROM ServiceRank
+WHERE service_rank <= 3;
+```
+</details>
+
+### 5. Средний чек услуг на гостя в гостинице. 
+**Описание:** Название **prj_avg_service_check_by_hotel**. Используется CTE.   
+
+<details>
+<summary>💻 Посмотреть SQL запрос</summary>  
+    
+```sql
+GO
+CREATE VIEW prj_avg_service_check_by_hotel
+AS
+WITH GuestTotals AS (
+    SELECT
+        h.hotel_name,
+        g.guest_id,
+        SUM(gs.quantity * s.service_price) AS guest_service_total
+    FROM prj_guest_services gs
+    JOIN prj_check_info ci ON gs.check_in_id = ci.check_in_id
+    JOIN prj_reservations r ON ci.reservation_id = r.reservation_id
+    JOIN prj_hotels h ON r.hotel_id = h.hotel_id
+    JOIN prj_guests g ON r.guest_id = g.guest_id
+    JOIN prj_services s ON gs.service_id = s.service_id
+    GROUP BY h.hotel_name, g.guest_id
+)
+SELECT
+    hotel_name,
+    AVG(guest_service_total) AS avg_service_check
+FROM GuestTotals
+GROUP BY hotel_name;
+```
+</details>
+
+### 6. Источник данных для отчета по гео-аналитике. 
+**Описание:** Название **prj_Hotel_KPIs**. Используется CTE.   
+
+<details>
+<summary>💻 Посмотреть SQL запрос</summary>  
+    
+```sql
+GO
+CREATE VIEW prj_Hotel_KPIs AS
+WITH HotelKPIs AS (
+    SELECT 
+        h.hotel_id,
+        h.hotel_name,
+        --преобразование GEOGRAPHY в читаемые координаты
+        h.location.Lat AS Latitude,
+        h.location.Long AS Longitude,
+        h.total_rooms,
+        --доход (размер пузырька)
+        SUM(p.amount) AS TotalRevenue,
+        --загрузка (цвет пузырька)
+        CAST(COUNT(DISTINCT ci.check_in_id) * 100.0 / (h.total_rooms * 30) AS DECIMAL(10,2)) AS OccupancyRate
+    FROM prj_hotels h
+    LEFT JOIN prj_reservations r ON h.hotel_id = r.hotel_id
+    LEFT JOIN prj_check_info ci ON r.reservation_id = ci.reservation_id
+    LEFT JOIN prj_payments p ON r.reservation_id = p.reservation_id
+    --фильтр за последний месяц
+    WHERE r.check_in_plan >= DATEADD(month, -1, GETDATE())
+    GROUP BY h.hotel_id, h.hotel_name, h.location.Lat, h.location.Long, h.total_rooms
+)
+SELECT * FROM HotelKPIs;
+```
+</details>
+
+---
+
+## 📜 Хранимая процедура
+**Описание:** В рамках проекта создана одна хранимая процедура **sp_Hotel_Analytics**. Она является источником данных для отчета **"Комплексный Анализ доходности и эффективности (RevPAR)"**.  
+Процедура предназначена для глубокого анализа эффективности работы отелей. Она рассчитывает финансовые показатели и ключевые метрики гостиничного бизнеса (KPI) за произвольный период.  
+
+Основные задачи:  
+•	**Консолидация доходов**: Расчет выручки раздельно по проживанию (номера) и дополнительным услугам.  
+•	**Расчет KPI**: Вычисление важнейших отраслевых метрик — ADR и RevPAR.  
+•	**Анализ лояльности**: Автоматическое определение самого ценного гостя для каждого отеля.  
+
+#### Входные параметры  
+Процедура `sp_Hotel_Analytics` принимает три необязательных параметра. Если параметры не переданы, отчет формируется за текущий календарный год по всем отелям.
+
+| Параметр | Тип данных | Значение по умолчанию | Описание |
+| :--- | :--- | :--- | :--- |
+| **@StartDate** | `DATE` | `01.01.[Текущий_год]` | Начальная дата периода анализа. |
+| **@EndDate** | `DATE` | `31.12.[Текущий_год]` | Конечная дата периода анализа. |
+| **@HotelID** | `NVARCHAR(50)` | `NULL` | Идентификатор отеля для фильтрации. Если `NULL`, анализируются все отели. |
+ 
+<details>
+<summary>💻 Посмотреть SQL-код процедуры</summary>  
+
+```sql
+ALTER PROCEDURE sp_Hotel_Analytics
+    @StartDate DATE = NULL,
+    @EndDate DATE = NULL,
+    @HotelID NVARCHAR(50) = NULL
+AS
+-- DECLARE @StartDate DATE = NULL;
+-- DECLARE @EndDate DATE = NULL;
+-- DECLARE @HotelID NVARCHAR(50) = '1,2,3';
+
+BEGIN
+    SET NOCOUNT ON;
+
+    --если даты не указаны, то текущий год
+    SET @StartDate = ISNULL(@StartDate, DATEFROMPARTS(YEAR(GETDATE()), 1, 1));
+    SET @EndDate = ISNULL(@EndDate, DATEFROMPARTS(YEAR(GETDATE()), 12, 31));
+
+    WITH RoomRevenue AS (
+        --доход от проживания (через платежи, привязанные к брони), должен брать только те платежи, что попали в период
+        SELECT 
+            r.hotel_id,
+            r.reservation_id,
+            SUM(p.amount) as total_paid
+        FROM prj_reservations r
+            JOIN prj_payments p ON r.reservation_id = p.reservation_id
+        WHERE p.payment_date BETWEEN @StartDate AND @EndDate
+        GROUP BY r.hotel_id, r.reservation_id
+    ),
+    ServiceRevenue AS (
+        --доход от доп. услуг, тоже за период
+        SELECT 
+            res.hotel_id,
+            SUM(gs.quantity * s.service_price) as service_total
+        FROM prj_guest_services gs
+            JOIN prj_services s ON gs.service_id = s.service_id
+            JOIN prj_check_info ci ON gs.check_in_id = ci.check_in_id
+            JOIN prj_reservations res ON ci.reservation_id = res.reservation_id
+        WHERE gs.service_date BETWEEN @StartDate AND @EndDate
+        GROUP BY res.hotel_id
+    ),
+    Occupancy AS (
+        --количество фактически завершенных броней и ночей
+        SELECT 
+            r.hotel_id,
+            COUNT(ci.reservation_id) as total_stays,
+            SUM(DATEDIFF(day, ci.check_in_fact, ci.check_out_fact)) as total_nights
+        FROM prj_reservations r
+            JOIN prj_check_info ci ON r.reservation_id = ci.reservation_id
+        WHERE ci.check_in_fact >= @StartDate AND ci.check_out_fact <= @EndDate
+        GROUP BY hotel_id
+    )
+    
+    SELECT 
+        h.hotel_name AS 'Отель',
+        h.stars AS 'Звезд',
+        occ.total_stays AS 'Кол.-во бронирований',
+        occ.total_nights AS 'Продано ночей',
+        
+        --платежи, доходность
+        ISNULL(rev.total_room_income, 0) AS 'Доход от номеров',
+        ISNULL(srv.service_total, 0) AS 'Доход от услуг',
+        ISNULL(rev.total_room_income, 0) + ISNULL(srv.service_total, 0) AS 'Общая выручка',
+        
+        --KPI (Key Performance Indicators) - Ключевые показатели эффективности
+        CASE 
+            WHEN occ.total_nights > 0 THEN CAST(ISNULL(rev.total_room_income, 0) / occ.total_nights AS DECIMAL(10,2)) 
+            ELSE 0
+        --ADR (Average Daily Rate)
+        END AS 'ADR (Средняя цена за ночь)',
+        
+        --эффективность использования фонда: RevPAR (Revenue Per Available Room) - доход на один доступный номер, учитывает и цену, и заполняемость
+        --RevPAR = Общая выручка от номеров / Общее кол-во доступных номеров в периоде
+        CAST((ISNULL(rev.total_room_income, 0) / (h.total_rooms * DATEDIFF(day, @StartDate, DATEADD(day, 1, @EndDate)))) AS DECIMAL(10,2)) AS 'RevPAR',
+
+        --лучший гость
+        (SELECT TOP 1 g.last_name + ' ' + g.first_name 
+         FROM prj_guests g
+            JOIN prj_reservations r ON g.guest_id = r.guest_id
+         WHERE r.hotel_id = h.hotel_id
+         GROUP BY g.guest_id, g.last_name, g.first_name
+         ORDER BY COUNT(r.reservation_id) DESC) AS 'Самый лояльный гость'
+
+    FROM prj_hotels h
+        LEFT JOIN (SELECT hotel_id, SUM(total_paid) as total_room_income FROM RoomRevenue GROUP BY hotel_id) rev ON h.hotel_id = rev.hotel_id
+        LEFT JOIN ServiceRevenue srv ON h.hotel_id = srv.hotel_id
+        LEFT JOIN Occupancy occ ON h.hotel_id = occ.hotel_id
+    WHERE (@HotelID IS NULL OR h.hotel_id = @HotelID)
+    ORDER BY 'Общая выручка' DESC;
+END;
+
+EXEC sp_Hotel_Analytics --'20260101', '20261231', 1
+```
+</details>
+
+---
+
+## 📈 Описание отчетов
 В рамках проекта создано 3 отчета. Средством разработки отчетов является Power BI Desktop. 
 
 ### 1. Оплаты услуг по гостиницам в разрезе гостей. 
