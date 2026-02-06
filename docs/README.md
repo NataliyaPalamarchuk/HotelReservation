@@ -630,7 +630,7 @@ SELECT * FROM HotelKPIs;
 <summary>💻 Посмотреть SQL-код процедуры</summary>  
 
 ```sql
-ALTER PROCEDURE sp_Hotel_Analytics
+CREATE PROCEDURE sp_Hotel_Analytics
     @StartDate DATE = NULL,
     @EndDate DATE = NULL,
     @HotelID NVARCHAR(50) = NULL
@@ -720,6 +720,91 @@ BEGIN
 END;
 
 EXEC sp_Hotel_Analytics --'20260101', '20261231', 1
+```
+</details>
+
+### 2. Хранимая процедура sp_GetBookedRoomsReport. 
+**Описание:** Процедура является источником данных для отчета **"Ведомость контроля бронирования и статуса прибытия гостей"**.  
+Она предназначена для вывода следующей информации по отелю, категории и гостю:
+•	Плановые даты заезда и выезда (из бронирования).  
+•	Фактические даты заезда и выезда.  
+•	Статус (Ожидается сегодня, 	Будущий резерв, Просрочен заезд).  
+
+#### Входные параметры  
+Процедура `sp_Hotel_Analytics` принимает три параметра. Параметр по категории номера является необязательным.
+
+| Параметр | Тип данных | Значение по умолчанию | Описание |
+| :--- | :--- | :--- | :--- |
+| **@TargetDate** | `DATE` | `-` | Дата, на которую смотрим брони. |
+| **@HotelID** | `NVARCHAR(50)` | `-` | Фильтр по отелям. |
+| **@RoomTypeID** | `NVARCHAR(50)` | `NULL` | Фильтр по типам номеров. |
+ 
+<details>
+<summary>💻 Посмотреть SQL-код процедуры</summary>  
+
+```sql
+CREATE PROCEDURE dbo.sp_GetBookedRoomsReport
+    @TargetDate DATE,         --дата, на которую смотрим брони
+    @HotelID NVARCHAR(50),             --фильтр по отелям
+    @RoomTypeID NVARCHAR(50) = NULL    --фильтр по типам номеров (необязательный)
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- DECLARE @TargetDate DATE = '20260107'; --GETDATE();
+    -- DECLARE @HotelID NVARCHAR(50) = '1,2,3';
+    -- DECLARE @RoomTypeID NVARCHAR(50) = '1,2,3,4,5,6,7,8,9';
+
+    SELECT 
+        h.hotel_name AS [HotelName],
+        r.room_number AS [RoomNumber],
+        rt.type_name AS [RoomType],
+        g.last_name + ' ' + g.first_name AS [GuestFullName],
+        g.phone AS [GuestPhone],
+        res.check_in_plan AS [CheckInPlan],
+        res.check_out_plan AS [CheckOutPlan],
+        ci.check_in_fact AS [CheckInFact],
+        ci.check_out_fact AS [CheckOutFact],
+        --стоимость проживания (цена * кол-во ночей)
+        hp.price AS [DailyPrice],
+        DATEDIFF(DAY, res.check_in_plan, res.check_out_plan) AS [Nights],
+        (hp.price * DATEDIFF(DAY, res.check_in_plan, res.check_out_plan)) AS [TotalStayAmount],
+        --статус для отчета
+        CASE 
+            --бронь есть, но гость не заехал
+            WHEN ci.check_in_fact IS NULL THEN 'Не заехал'
+            --бронь есть, но гость заехал позже запланированного
+            WHEN CAST(ci.check_in_fact AS DATE) > res.check_in_plan THEN 'Просрочен заезд'
+            WHEN res.check_in_plan = @TargetDate THEN 'Ожидается сегодня'
+            ELSE 'Будущий резерв'
+        END AS [ArrivalStatus]
+    FROM prj_reservations res
+        JOIN prj_hotels h ON res.hotel_id = h.hotel_id
+        JOIN prj_rooms r ON res.room_id = r.room_id AND r.hotel_id = res.hotel_id
+        JOIN prj_room_types rt ON r.room_type_id = rt.room_type_id
+        JOIN prj_guests g ON res.guest_id = g.guest_id
+        --ценs для конкретного отеля и типа номера
+        JOIN prj_hotel_room_prices hp ON h.hotel_id = hp.hotel_id AND rt.room_type_id = hp.room_type_id
+        --есть ли факт заселения
+        LEFT JOIN prj_check_info ci ON res.reservation_id = ci.reservation_id
+    WHERE 
+        res.hotel_id IN (SELECT PH.[value] FROM string_split(@HotelID, ',') PH)
+        --гость забронировал номер на эту дату
+        AND @TargetDate BETWEEN res.check_in_plan AND res.check_out_plan
+        --но запись о фактическом заезде отсутствует
+        --AND ci.check_in_id IS NULL
+        AND (@RoomTypeID IS NULL OR rt.room_type_id IN (SELECT PR.[value] FROM string_split(@RoomTypeID, ',') PR))
+    ORDER BY 
+        rt.type_name, r.room_number;
+
+END;
+GO
+
+DECLARE @Today DATE = '20260107'; --GETDATE();
+EXEC dbo.sp_GetBookedRoomsReport
+    @TargetDate = @Today, 
+    @HotelID = '1,2,3', 
+    @RoomTypeID = '1,2,3'
 ```
 </details>
 
