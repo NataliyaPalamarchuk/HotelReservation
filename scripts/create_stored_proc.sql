@@ -86,7 +86,7 @@ BEGIN
         LEFT JOIN ServiceRevenue srv ON h.hotel_id = srv.hotel_id
         LEFT JOIN Occupancy occ ON h.hotel_id = occ.hotel_id
     WHERE (@HotelID IS NULL OR h.hotel_id = @HotelID)
-    ORDER BY 'Общая выручка' DESC;
+    ORDER BY [Общая выручка] DESC;
 END;
 
 EXEC sp_Hotel_Analytics --'20260101', '20261231', 1
@@ -155,3 +155,4 @@ EXEC dbo.sp_GetBookedRoomsReport
     @TargetDate = @Today, 
     @HotelID = '1,2,3', 
     @RoomTypeID = '1,2,3'
+
