@@ -281,7 +281,7 @@ FROM prj_hotels h
     JOIN prj_room_types rt ON rm.room_type_id = rt.room_type_id
     JOIN prj_reservations r ON rm.room_id = r.room_id
 GROUP BY h.hotel_id, h.hotel_name, rt.type_name
-ORDER BY 'Отель', 'Кол.-во бронирований' DESC;
+ORDER BY [Отель], [Кол.-во бронирований] DESC;
 ```
 </details>
 
@@ -365,7 +365,7 @@ FROM prj_reservations r
     LEFT JOIN PaymentTotals pt ON r.reservation_id = pt.reservation_id
 WHERE 
     ((hp.price * DATEDIFF(day, r.check_in_plan, r.check_out_plan)) + ISNULL(st.total_service_price, 0)) > ISNULL(pt.total_paid, 0)
-ORDER BY 'Задолженность' DESC;
+ORDER BY [Задолженность] DESC;
 
 --7. ABC-анализ доп. услуг. A-самые прибыльные услуги, B-услуги со средней доходностью, C-не приносят денег
 WITH ServiceRevenue AS (
@@ -716,7 +716,7 @@ BEGIN
         LEFT JOIN ServiceRevenue srv ON h.hotel_id = srv.hotel_id
         LEFT JOIN Occupancy occ ON h.hotel_id = occ.hotel_id
     WHERE (@HotelID IS NULL OR h.hotel_id = @HotelID)
-    ORDER BY 'Общая выручка' DESC;
+    ORDER BY [Общая выручка] DESC;
 END;
 
 EXEC sp_Hotel_Analytics --'20260101', '20261231', 1
